@@ -2,9 +2,13 @@
 set -e -x
 
 # Build so file
+# Build from the MOUNTED tree, not a fresh upstream clone: this fork carries
+# patches, and cloning alphacep/vosk-api here would silently build unpatched
+# sources. The build-dockcross-*.sh wrappers mount this repo at /io.
 cd /opt
-git clone https://github.com/alphacep/vosk-api
+cp -r /io /opt/vosk-api
 cd /opt/vosk-api/src
+make clean || true
 KALDI_ROOT=/opt/kaldi EXTRA_LDFLAGS="-latomic" make -j $(nproc)
 
 # Decide architecture name

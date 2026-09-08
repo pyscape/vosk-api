@@ -2,9 +2,13 @@
 set -e -x
 
 # Build libvosk
+# Build from the MOUNTED tree, not a fresh upstream clone: this fork carries
+# patches, and cloning alphacep/vosk-api here would silently build unpatched
+# sources. The build-docker-*.sh wrappers mount this repo at /io.
 cd /opt
-git clone https://github.com/alphacep/vosk-api
+cp -r /io /opt/vosk-api
 cd vosk-api/src
+make clean || true
 EXTRA_LDFLAGS=-Wl,--out-implib,libvosk.lib CXX=i686-w64-mingw32-g++-posix EXT=dll KALDI_ROOT=/opt/kaldi/kaldi OPENFST_ROOT=/opt/kaldi/local OPENBLAS_ROOT=/opt/kaldi/local make -j $(nproc)
 
 # Copy dependencies
