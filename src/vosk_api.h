@@ -225,6 +225,17 @@ void vosk_recognizer_set_partial_words(VoskRecognizer *recognizer, int partial_w
  */
 void vosk_recognizer_set_partial_alternatives(VoskRecognizer *recognizer, int partial_alternatives);
 
+/** Report the confusion network behind a partial: per word position, every
+ *  rival MBR weighed and its posterior, including the null hypothesis.
+ *
+ *  MBR already computes this to pick the one-best; without this it is
+ *  discarded, so a word suppressed for a low posterior looks simply absent.
+ *  Requires partial words. Off by default.
+ *
+ * @param partial_confusion - boolean value
+ */
+void vosk_recognizer_set_partial_confusion(VoskRecognizer *recognizer, int partial_confusion);
+
 /** Set NLSML output
  * @param nlsml - boolean value
  */

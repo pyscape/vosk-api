@@ -52,6 +52,7 @@ class Recognizer {
         void SetWords(bool words);
         void SetPartialWords(bool partial_words);
         void SetPartialAlternatives(int partial_alternatives);
+        void SetPartialConfusion(bool partial_confusion);
         void SetNLSML(bool nlsml);
         bool AcceptWaveform(const char *data, int len);
         bool AcceptWaveform(const short *sdata, int len);
@@ -102,6 +103,7 @@ class Recognizer {
         bool words_ = false;
         bool partial_words_ = false;
         int partial_alternatives_ = 0; // Disable partial alternatives by default
+        bool partial_confusion_ = false;
         bool nlsml_ = false;
 
         float sample_frequency_;

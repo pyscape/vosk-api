@@ -113,6 +113,11 @@ void vosk_recognizer_set_partial_alternatives(VoskRecognizer *recognizer, int pa
     ((Recognizer *)recognizer)->SetPartialAlternatives(partial_alternatives);
 }
 
+void vosk_recognizer_set_partial_confusion(VoskRecognizer *recognizer, int partial_confusion)
+{
+    ((Recognizer *)recognizer)->SetPartialConfusion((bool)partial_confusion);
+}
+
 void vosk_recognizer_set_nlsml(VoskRecognizer *recognizer, int nlsml)
 {
     ((Recognizer *)recognizer)->SetNLSML((bool)nlsml);

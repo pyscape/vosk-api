@@ -172,6 +172,9 @@ class KaldiRecognizer:
     def SetPartialAlternatives(self, partial_alternatives):
         _c.vosk_recognizer_set_partial_alternatives(self._handle, partial_alternatives)
 
+    def SetPartialConfusion(self, enable_partial_confusion):
+        _c.vosk_recognizer_set_partial_confusion(self._handle, 1 if enable_partial_confusion else 0)
+
     def SetNLSML(self, enable_nlsml):
         _c.vosk_recognizer_set_nlsml(self._handle, 1 if enable_nlsml else 0)
 

@@ -218,6 +218,11 @@ void Recognizer::SetPartialAlternatives(int partial_alternatives)
     partial_alternatives_ = partial_alternatives;
 }
 
+void Recognizer::SetPartialConfusion(bool partial_confusion)
+{
+    partial_confusion_ = partial_confusion;
+}
+
 void Recognizer::SetNLSML(bool nlsml)
 {
     nlsml_ = nlsml;
@@ -836,6 +841,35 @@ const char* Recognizer::PartialResult()
             text << model_->word_syms_->Find(words[i]);
         }
         res["partial"] = text.str();
+
+        // The competition MBR already computed and would otherwise discard.
+        // GetOneBest() keeps the winner of each bin; the bins themselves hold
+        // every rival with its posterior, including the null hypothesis whose
+        // winning is exactly why a word appears to be "dropped".
+        if (partial_confusion_) {
+            const std::vector<std::vector<std::pair<int32, BaseFloat> > > &saus
+                = mbr.GetSausageStats();
+            const std::vector<std::pair<BaseFloat, BaseFloat> > stimes
+                = mbr.GetSausageTimes();
+            for (size_t b = 0; b < saus.size(); b++) {
+                json::JSON bin;
+                if (b < stimes.size()) {
+                    bin["start"] = samples_round_start_ / sample_frequency_
+                        + (frame_offset_ + stimes[b].first) * 0.03;
+                    bin["end"] = samples_round_start_ / sample_frequency_
+                        + (frame_offset_ + stimes[b].second) * 0.03;
+                }
+                for (size_t k = 0; k < saus[b].size(); k++) {
+                    json::JSON cand;
+                    int32 wid = saus[b][k].first;
+                    cand["word"] = (wid == 0) ? std::string("")
+                                              : model_->word_syms_->Find(wid);
+                    cand["p"] = saus[b][k].second;
+                    bin["candidates"].append(cand);
+                }
+                res["partial_confusion"].append(bin);
+            }
+        }
 
         // Additive n-best over the SAME mid-utterance lattice. The
         // finalization flag on GetLattice above stays false: finalizing to
