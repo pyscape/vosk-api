@@ -169,6 +169,9 @@ class KaldiRecognizer:
     def SetPartialWords(self, enable_partial_words):
         _c.vosk_recognizer_set_partial_words(self._handle, 1 if enable_partial_words else 0)
 
+    def SetPartialAlternatives(self, partial_alternatives):
+        _c.vosk_recognizer_set_partial_alternatives(self._handle, partial_alternatives)
+
     def SetNLSML(self, enable_nlsml):
         _c.vosk_recognizer_set_nlsml(self._handle, 1 if enable_nlsml else 0)
 

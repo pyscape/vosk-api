@@ -212,6 +212,19 @@ void vosk_recognizer_set_words(VoskRecognizer *recognizer, int words);
  */
 void vosk_recognizer_set_partial_words(VoskRecognizer *recognizer, int partial_words);
 
+/** Return N candidate readings in partial results, alongside the existing
+ *  "partial" text rather than in place of it.
+ *
+ *  Extracted from the same mid-utterance lattice PartialResult already
+ *  builds, without finalizing it, so the speaker's utterance is not ended
+ *  to produce the list. Requires partial words to be enabled, since that
+ *  is what builds the lattice. 0 or 1 disables, which is the default and
+ *  leaves output byte-identical to stock.
+ *
+ * @param partial_alternatives - number of candidate readings
+ */
+void vosk_recognizer_set_partial_alternatives(VoskRecognizer *recognizer, int partial_alternatives);
+
 /** Set NLSML output
  * @param nlsml - boolean value
  */

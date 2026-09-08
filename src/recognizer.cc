@@ -213,6 +213,11 @@ void Recognizer::SetPartialWords(bool partial_words)
     partial_words_ = partial_words;
 }
 
+void Recognizer::SetPartialAlternatives(int partial_alternatives)
+{
+    partial_alternatives_ = partial_alternatives;
+}
+
 void Recognizer::SetNLSML(bool nlsml)
 {
     nlsml_ = nlsml;
@@ -831,6 +836,40 @@ const char* Recognizer::PartialResult()
             text << model_->word_syms_->Find(words[i]);
         }
         res["partial"] = text.str();
+
+        // Additive n-best over the SAME mid-utterance lattice. The
+        // finalization flag on GetLattice above stays false: finalizing to
+        // sharpen this list would end the speaker's utterance.
+        if (partial_alternatives_ > 1) {
+            Lattice plat;
+            Lattice pnbest_lat;
+            std::vector<Lattice> pnbest_lats;
+
+            ConvertLattice(clat, &plat);
+            fst::ShortestPath(plat, &pnbest_lat, partial_alternatives_);
+            fst::ConvertNbestToVector(pnbest_lat, &pnbest_lats);
+
+            for (int k = 0; k < pnbest_lats.size(); k++) {
+                std::vector<int32> palignment, pwords;
+                LatticeWeight pweight;
+                GetLinearSymbolSequence(pnbest_lats[k], &palignment, &pwords, &pweight);
+
+                stringstream ptext;
+                for (int i = 0, first = 1; i < pwords.size(); i++) {
+                    if (pwords[i] == 0)
+                        continue;
+                    if (!first)
+                        ptext << " ";
+                    ptext << model_->word_syms_->Find(pwords[i]);
+                    first = 0;
+                }
+
+                json::JSON pentry;
+                pentry["text"] = ptext.str();
+                pentry["confidence"] = -(pweight.Value1() + pweight.Value2());
+                res["partial_alternatives"].append(pentry);
+            }
+        }
 
     } else {
 
