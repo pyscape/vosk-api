@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(vosk
   src/language_model.cc
   src/model.cc
+  src/partial_evidence.cc
   src/recognizer.cc
   src/spk_model.cc
   src/vosk_api.cc

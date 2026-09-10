@@ -29,6 +29,7 @@
 #include "nnet3/nnet-utils.h"
 
 #include "model.h"
+#include "partial_evidence.h"
 #include "spk_model.h"
 
 using namespace kaldi;
@@ -61,8 +62,15 @@ class Recognizer {
         const char* FinalResult();
         const char* PartialResult();
         void Reset();
+        // [[rr:FVP-4]]
+        int SetEvidenceConfig(const char *json_config);
+        const char *EvidenceResult();
 
     private:
+        void BeginEvidenceEpoch();
+        double EvidenceSamplesPerFrame() const;
+        partial_evidence::Observation EvidenceObservation() const;
+
         void InitState();
         void InitRescoring();
         void CleanUp();
@@ -114,6 +122,11 @@ class Recognizer {
 
         RecognizerState state_;
         string last_result_;
+
+        // [[rr:FVP-5]]
+        partial_evidence::PartialEvidence evidence_;
+        uint64_t evidence_epoch_;
+        string last_evidence_;
 };
 
 #endif /* VOSK_KALDI_RECOGNIZER_H */

@@ -22,6 +22,7 @@ VOSK_SOURCES= \
 	recognizer.cc \
 	language_model.cc \
 	model.cc \
+	partial_evidence.cc \
 	spk_model.cc \
 	vosk_api.cc
 
@@ -29,6 +30,7 @@ VOSK_HEADERS= \
 	recognizer.h \
 	language_model.h \
 	model.h \
+	partial_evidence.h \
 	spk_model.h \
 	vosk_api.h
 

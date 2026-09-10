@@ -123,7 +123,45 @@ void Recognizer::InitState()
     samples_processed_ = 0;
     samples_round_start_ = 0;
 
+    evidence_epoch_ = 0;
+    BeginEvidenceEpoch();
+
     state_ = RECOGNIZER_INITIALIZED;
+}
+
+// [[rr:FVP-5]]
+void Recognizer::BeginEvidenceEpoch()
+{
+    evidence_epoch_ += 1;
+    evidence_.BeginEpoch(evidence_epoch_);
+}
+
+// [[rr:FVP-5]]
+double Recognizer::EvidenceSamplesPerFrame() const
+{
+    return sample_frequency_ * model_->feature_info_.FrameShiftInSeconds()
+           * model_->decodable_opts_.frame_subsampling_factor;
+}
+
+// [[rr:FVP-5]]
+partial_evidence::Observation Recognizer::EvidenceObservation() const
+{
+    partial_evidence::Observation observation;
+    observation.epoch = evidence_epoch_;
+    observation.accepted_samples = samples_round_start_ + samples_processed_;
+    if (decoder_ != nullptr) {
+        double samples_per_frame = EvidenceSamplesPerFrame();
+        observation.decoded_end_known = true;
+        observation.decoded_end_sample = samples_round_start_ +
+            (int64)((frame_offset_ + decoder_->NumFramesDecoded()) * samples_per_frame);
+        int32 lattice_frames = decoder_->NumFramesInLattice();
+        if (lattice_frames > 0) {
+            observation.lattice_end_known = true;
+            observation.lattice_end_sample = samples_round_start_ +
+                (int64)((frame_offset_ + lattice_frames) * samples_per_frame);
+        }
+    }
+    return observation;
 }
 
 void Recognizer::InitRescoring()
@@ -149,6 +187,9 @@ void Recognizer::InitRescoring()
 
 void Recognizer::CleanUp()
 {
+    // [[rr:FVP-5]]
+    BeginEvidenceEpoch();
+
     delete silence_weighting_;
     silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_.silence_weighting_config, 3);
 
@@ -258,6 +299,9 @@ void Recognizer::SetGrm(char const *grammar)
     } else {
         UpdateGrammarFst(grammar);
     }
+
+    // [[rr:FVP-5]]
+    BeginEvidenceEpoch();
 
     samples_round_start_ += samples_processed_;
     samples_processed_ = 0;
@@ -371,6 +415,8 @@ bool Recognizer::AcceptWaveform(Vector<BaseFloat> &wdata)
         UpdateSilenceWeights();
         decoder_->AdvanceDecoding();
     }
+    // [[rr:FVP-5]]
+    evidence_.AcceptPcm(wdata.Data(), wdata.Dim(), samples_round_start_ + samples_processed_);
     samples_processed_ += wdata.Dim();
 
     if (spk_feature_) {
@@ -797,6 +843,9 @@ const char* Recognizer::PartialResult()
         return StoreEmptyReturn();
     }
 
+    // [[rr:FVP-4]]
+    evidence_.ObservePartial(EvidenceObservation());
+
     json::JSON res;
 
     if (partial_words_) {
@@ -936,6 +985,8 @@ const char* Recognizer::Result()
         return StoreEmptyReturn();
     }
     decoder_->FinalizeDecoding();
+    // [[rr:FVP-4]]
+    evidence_.ObserveFinal(EvidenceObservation());
     state_ = RECOGNIZER_ENDPOINT;
     return GetResult();
 }
@@ -950,6 +1001,8 @@ const char* Recognizer::FinalResult()
     UpdateSilenceWeights();
     decoder_->AdvanceDecoding();
     decoder_->FinalizeDecoding();
+    // [[rr:FVP-4]]
+    evidence_.ObserveFinal(EvidenceObservation());
     state_ = RECOGNIZER_FINALIZED;
     GetResult();
 
@@ -965,6 +1018,9 @@ const char* Recognizer::FinalResult()
     decoder_ = nullptr;
     spk_feature_ = nullptr;
 
+    // [[rr:FVP-5]]
+    BeginEvidenceEpoch();
+
     return last_result_.c_str();
 }
 
@@ -974,6 +1030,8 @@ void Recognizer::Reset()
         decoder_->FinalizeDecoding();
     }
     StoreEmptyReturn();
+    // [[rr:FVP-5]]
+    BeginEvidenceEpoch();
     state_ = RECOGNIZER_ENDPOINT;
 }
 
@@ -999,4 +1057,130 @@ const char *Recognizer::StoreReturn(const string &res)
 {
     last_result_ = res;
     return last_result_.c_str();
+}
+
+static bool EvidenceIsNumber(const json::JSON &value)
+{
+    return value.JSONType() == json::JSON::Class::Integral
+        || value.JSONType() == json::JSON::Class::Floating;
+}
+
+static const char *EvidenceModeName(partial_evidence::Mode mode)
+{
+    return mode == partial_evidence::Mode::kEnforce ? "enforce" : "shadow";
+}
+
+static const char *EvidenceKindName(partial_evidence::Kind kind)
+{
+    switch (kind) {
+        case partial_evidence::Kind::kEmpty: return "empty";
+        case partial_evidence::Kind::kPartial: return "partial";
+        case partial_evidence::Kind::kFinal: return "final";
+        default: return "unavailable";
+    }
+}
+
+// [[rr:FVP-4]]
+int Recognizer::SetEvidenceConfig(const char *json_config)
+{
+    if (json_config == nullptr || state_ == RECOGNIZER_RUNNING) {
+        return 0;
+    }
+
+    json::JSON parsed = json::JSON::Load(string(json_config));
+    if (parsed.JSONType() != json::JSON::Class::Object) {
+        return 0;
+    }
+
+    partial_evidence::Config config;
+    for (auto &entry : parsed.ObjectRange()) {
+        const string &key = entry.first;
+        json::JSON &value = entry.second;
+
+        if (key == "mode") {
+            if (value.JSONType() != json::JSON::Class::String) {
+                return 0;
+            }
+            string mode = value.ToString();
+            if (mode == "shadow") {
+                config.mode = partial_evidence::Mode::kShadow;
+            } else if (mode == "enforce") {
+                config.mode = partial_evidence::Mode::kEnforce;
+            } else {
+                return 0;
+            }
+        } else if (key == "hold_ms") {
+            if (value.IsNull()) {
+                config.final_only = true;
+            } else if (value.JSONType() == json::JSON::Class::Object) {
+                config.final_only = false;
+                for (auto &hold : value.ObjectRange()) {
+                    if (!EvidenceIsNumber(hold.second)) {
+                        return 0;
+                    }
+                    config.hold_ms[hold.first] = hold.second.ToFloat();
+                }
+            } else {
+                return 0;
+            }
+        } else if (key == "default_hold_ms") {
+            if (!EvidenceIsNumber(value)) {
+                return 0;
+            }
+            config.default_hold_ms = value.ToFloat();
+        } else if (key == "quiet_dbfs") {
+            if (value.IsNull()) {
+                config.quiet_dbfs_set = false;
+            } else if (EvidenceIsNumber(value)) {
+                config.quiet_dbfs_set = true;
+                config.quiet_dbfs = value.ToFloat();
+            } else {
+                return 0;
+            }
+        } else if (key == "profile_id") {
+            if (value.JSONType() != json::JSON::Class::String) {
+                return 0;
+            }
+            config.profile_id = value.ToString();
+        } else {
+            return 0;
+        }
+    }
+
+    if (!evidence_.Configure(config)) {
+        return 0;
+    }
+
+    // [[rr:FVP-4]]
+    BeginEvidenceEpoch();
+    return 1;
+}
+
+// [[rr:FVP-5]]
+const char *Recognizer::EvidenceResult()
+{
+    const partial_evidence::Snapshot &snapshot = evidence_.Read();
+
+    json::JSON res;
+    res["schema"] = snapshot.schema;
+    res["profile_id"] = snapshot.profile_id;
+    res["mode"] = EvidenceModeName(snapshot.mode);
+    res["epoch"] = (long)snapshot.epoch;
+    res["revision"] = (long)snapshot.revision;
+    res["kind"] = EvidenceKindName(snapshot.kind);
+    res["accepted_samples"] = (long)snapshot.accepted_samples;
+    if (snapshot.decoded_end_known) {
+        res["decoded_end_sample"] = (long)snapshot.decoded_end_sample;
+    } else {
+        res["decoded_end_sample"] = json::JSON::Make(json::JSON::Class::Null);
+    }
+    if (snapshot.lattice_end_known) {
+        res["lattice_end_sample"] = (long)snapshot.lattice_end_sample;
+    } else {
+        res["lattice_end_sample"] = json::JSON::Make(json::JSON::Class::Null);
+    }
+    res["candidates"] = json::Array();
+
+    last_evidence_ = res.dump();
+    return last_evidence_.c_str();
 }

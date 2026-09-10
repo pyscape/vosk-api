@@ -236,6 +236,27 @@ void vosk_recognizer_set_partial_alternatives(VoskRecognizer *recognizer, int pa
  */
 void vosk_recognizer_set_partial_confusion(VoskRecognizer *recognizer, int partial_confusion);
 
+/** Load an evidence configuration, a JSON object of schema 1 carrying
+ *  mode, hold_ms, default_hold_ms, quiet_dbfs and profile_id.
+ *
+ *  Returns 1 once the configuration is accepted and 0 when the schema is
+ *  invalid or the recognizer is already running; a rejected configuration
+ *  leaves the previous one in force. An accepted configuration takes
+ *  effect at the next utterance. Before any configuration evidence is
+ *  disabled and output is byte-identical to stock.
+ *
+ * @param json_config - evidence configuration as a JSON object
+ */
+int vosk_recognizer_set_evidence_config(VoskRecognizer *recognizer, const char *json_config);
+
+/** Read the recognizer's current evidence snapshot as JSON.
+ *
+ *  Reading does not advance decoding, finalize, reset, replay audio or
+ *  change any existing result field, and repeated reads return the same
+ *  snapshot. PartialResult, Result and FinalResult each publish one.
+ */
+const char *vosk_recognizer_evidence_result(VoskRecognizer *recognizer);
+
 /** Set NLSML output
  * @param nlsml - boolean value
  */

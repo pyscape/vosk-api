@@ -118,6 +118,18 @@ void vosk_recognizer_set_partial_confusion(VoskRecognizer *recognizer, int parti
     ((Recognizer *)recognizer)->SetPartialConfusion((bool)partial_confusion);
 }
 
+// [[rr:FVP-4]]
+int vosk_recognizer_set_evidence_config(VoskRecognizer *recognizer, const char *json_config)
+{
+    return ((Recognizer *)recognizer)->SetEvidenceConfig(json_config);
+}
+
+// [[rr:FVP-4]]
+const char *vosk_recognizer_evidence_result(VoskRecognizer *recognizer)
+{
+    return ((Recognizer *)recognizer)->EvidenceResult();
+}
+
 void vosk_recognizer_set_nlsml(VoskRecognizer *recognizer, int nlsml)
 {
     ((Recognizer *)recognizer)->SetNLSML((bool)nlsml);
