@@ -152,6 +152,7 @@ class PartialEvidence {
         void EvictOldFrames();
         void SettlePartial(Snapshot *snapshot);
         void SettlePrimary(Candidate *candidate, const Snapshot &snapshot);
+        void SettleFinal(Snapshot *snapshot);
         double HoldMs(const std::string &word) const;
 
         std::map<int64_t, FrameEnergy> energy_frames_;

@@ -245,6 +245,8 @@ void PartialEvidence::Publish(const Observation &observation, Kind kind)
     // [[rr:FVP-7]]
     if (kind == Kind::kPartial) {
         SettlePartial(&published_);
+    } else if (kind == Kind::kFinal) {
+        SettleFinal(&published_);
     }
     lattice_published_ = observation.lattice_end_known;
     published_lattice_end_ = observation.lattice_end_sample;
@@ -388,6 +390,49 @@ void PartialEvidence::SettlePartial(Snapshot *snapshot)
     }
     for (std::size_t c = 0; c < snapshot->candidates.size(); c++) {
         Candidate &candidate = snapshot->candidates[c];
+        std::size_t prefix = 0;
+        while (prefix < candidate.words.size() && candidate.words[prefix].ready) {
+            prefix++;
+        }
+        candidate.ready_prefix = prefix;
+    }
+}
+
+// [[rr:FVP-7]]
+static bool FinalEligible(const Word &word, Reason *reason)
+{
+    if (!(word.start_sample_known && word.end_sample_known && word.bin_known)) {
+        *reason = Reason::kUnknownAlignment;
+        return false;
+    }
+    if (word.energy == Energy::kQuiet) {
+        *reason = Reason::kQuiet;
+        return false;
+    }
+    *reason = Reason::kFinalOnly;
+    return true;
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::SettleFinal(Snapshot *snapshot)
+{
+    for (std::size_t c = 0; c < snapshot->candidates.size(); c++) {
+        Candidate &candidate = snapshot->candidates[c];
+        bool quiet_reject = false;
+        for (std::size_t w = 0; w < candidate.words.size(); w++) {
+            Word &word = candidate.words[w];
+            Reason reason;
+            word.ready = FinalEligible(word, &reason);
+            word.reason = reason;
+            if (reason == Reason::kQuiet) {
+                quiet_reject = true;
+            }
+        }
+        if (quiet_reject) {
+            for (std::size_t w = 0; w < candidate.words.size(); w++) {
+                candidate.words[w].ready = false;
+            }
+        }
         std::size_t prefix = 0;
         while (prefix < candidate.words.size() && candidate.words[prefix].ready) {
             prefix++;
