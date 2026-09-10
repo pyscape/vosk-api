@@ -68,6 +68,8 @@ void PartialEvidence::BeginEpoch(uint64_t epoch)
     revision_ = 0;
     lattice_published_ = false;
     published_lattice_end_ = 0;
+    // [[rr:FVP-7]]
+    energy_frames_.clear();
     if (!ever_published_) {
         published_ = Snapshot();
         published_.epoch = epoch_;
@@ -80,16 +82,106 @@ void PartialEvidence::BeginEpoch(uint64_t epoch)
     }
 }
 
+// [[rr:FVP-7]]
+int64_t PartialEvidence::FrameSamples() const
+{
+    double frame = active_.sample_rate_hz * 0.01;
+    if (!(frame >= 1.0)) {
+        return 0;
+    }
+    return static_cast<int64_t>(frame + 0.5);
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::AccumulateSample(int64_t sample_index, double amplitude)
+{
+    int64_t frame_samples = FrameSamples();
+    if (frame_samples <= 0 || sample_index < 0) {
+        return;
+    }
+    FrameEnergy &accum = energy_frames_[sample_index / frame_samples];
+    accum.sum_squares += amplitude * amplitude;
+    accum.count += 1;
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::EvictOldFrames()
+{
+    int64_t frame_samples = FrameSamples();
+    if (frame_samples <= 0 || accepted_samples_ <= 0) {
+        return;
+    }
+    const int64_t retain_frames = 6000;
+    int64_t frontier_frame = (accepted_samples_ - 1) / frame_samples;
+    int64_t cutoff = frontier_frame - retain_frames + 1;
+    while (!energy_frames_.empty() && energy_frames_.begin()->first < cutoff) {
+        energy_frames_.erase(energy_frames_.begin());
+    }
+}
+
+// [[rr:FVP-7]]
 void PartialEvidence::AcceptPcm(const float *pcm, std::size_t count, int64_t start_sample)
 {
-    (void)pcm;
     int64_t frontier = start_sample + static_cast<int64_t>(count);
     if (frontier > accepted_samples_) {
         accepted_samples_ = frontier;
     }
+    if (configured_ && pcm != nullptr) {
+        for (std::size_t i = 0; i < count; i++) {
+            AccumulateSample(start_sample + static_cast<int64_t>(i),
+                             static_cast<double>(pcm[i]));
+        }
+        EvictOldFrames();
+    }
     if (!ever_published_) {
         published_.accepted_samples = accepted_samples_;
     }
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::AcceptPcm(const int16_t *pcm, std::size_t count, int64_t start_sample)
+{
+    int64_t frontier = start_sample + static_cast<int64_t>(count);
+    if (frontier > accepted_samples_) {
+        accepted_samples_ = frontier;
+    }
+    if (configured_ && pcm != nullptr) {
+        for (std::size_t i = 0; i < count; i++) {
+            AccumulateSample(start_sample + static_cast<int64_t>(i),
+                             static_cast<double>(pcm[i]));
+        }
+        EvictOldFrames();
+    }
+    if (!ever_published_) {
+        published_.accepted_samples = accepted_samples_;
+    }
+}
+
+// [[rr:FVP-7]]
+Energy PartialEvidence::IntervalEnergy(int64_t start_sample, int64_t end_sample) const
+{
+    int64_t frame_samples = FrameSamples();
+    if (!active_.quiet_dbfs_set || start_sample < 0 ||
+        end_sample <= start_sample || frame_samples <= 0) {
+        return Energy::kUnknown;
+    }
+    int64_t first = start_sample / frame_samples;
+    int64_t last = (end_sample - 1) / frame_samples;
+    bool all_quiet = true;
+    for (int64_t frame = first; frame <= last; frame++) {
+        std::map<int64_t, FrameEnergy>::const_iterator it = energy_frames_.find(frame);
+        if (it == energy_frames_.end() || it->second.count < frame_samples) {
+            return Energy::kUnknown;
+        }
+        double rms = std::sqrt(it->second.sum_squares /
+                               static_cast<double>(it->second.count));
+        double dbfs = rms <= 0.0 ? kMinQuietDbfs
+                                 : 20.0 * std::log10(rms / 32768.0);
+        if (dbfs > active_.quiet_dbfs) {
+            all_quiet = false;
+        }
+    }
+    return all_quiet ? Energy::kQuiet : Energy::kNonquiet;
 }
 
 // [[rr:FVP-5]]
@@ -139,6 +231,16 @@ void PartialEvidence::Publish(const Observation &observation, Kind kind)
     published_.lattice_end_known = observation.lattice_end_known;
     published_.lattice_end_sample = observation.lattice_end_sample;
     published_.candidates = observation.candidates;
+    // [[rr:FVP-7]]
+    for (std::size_t c = 0; c < published_.candidates.size(); c++) {
+        std::vector<Word> &words = published_.candidates[c].words;
+        for (std::size_t w = 0; w < words.size(); w++) {
+            if (words[w].start_sample_known && words[w].end_sample_known) {
+                words[w].energy = IntervalEnergy(words[w].start_sample,
+                                                 words[w].end_sample);
+            }
+        }
+    }
     lattice_published_ = observation.lattice_end_known;
     published_lattice_end_ = observation.lattice_end_sample;
 }

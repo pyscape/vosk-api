@@ -1164,6 +1164,8 @@ int Recognizer::SetEvidenceConfig(const char *json_config)
         }
     }
 
+    // [[rr:FVP-7]]
+    config.sample_rate_hz = sample_frequency_;
     if (!evidence_.Configure(config)) {
         return 0;
     }

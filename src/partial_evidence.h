@@ -52,6 +52,7 @@ struct Config {
     double default_hold_ms = 0.0;
     bool quiet_dbfs_set = false;
     double quiet_dbfs = 0.0;
+    double sample_rate_hz = 16000.0;
     std::string profile_id;
 };
 
@@ -121,6 +122,8 @@ class PartialEvidence {
         bool Configure(const Config &config);
         void BeginEpoch(uint64_t epoch);
         void AcceptPcm(const float *pcm, std::size_t count, int64_t start_sample);
+        void AcceptPcm(const int16_t *pcm, std::size_t count, int64_t start_sample);
+        Energy IntervalEnergy(int64_t start_sample, int64_t end_sample) const;
         void ObservePartial(const Observation &observation);
         void ObserveFinal(const Observation &observation);
         const Snapshot &Read() const { return published_; }
@@ -129,8 +132,17 @@ class PartialEvidence {
         const Config &config() const { return active_; }
 
     private:
-        void Publish(const Observation &observation, Kind kind);
+        struct FrameEnergy {
+            double sum_squares = 0.0;
+            int64_t count = 0;
+        };
 
+        void Publish(const Observation &observation, Kind kind);
+        int64_t FrameSamples() const;
+        void AccumulateSample(int64_t sample_index, double amplitude);
+        void EvictOldFrames();
+
+        std::map<int64_t, FrameEnergy> energy_frames_;
         bool configured_ = false;
         bool pending_ = false;
         bool ever_published_ = false;
