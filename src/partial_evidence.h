@@ -137,12 +137,25 @@ class PartialEvidence {
             int64_t count = 0;
         };
 
+        struct WordSupport {
+            bool active = false;
+            std::vector<std::string> prefix;
+            int64_t start_sample = 0;
+            int64_t end_sample = 0;
+            double stable_ms = 0.0;
+            int64_t frontier = 0;
+        };
+
         void Publish(const Observation &observation, Kind kind);
         int64_t FrameSamples() const;
         void AccumulateSample(int64_t sample_index, double amplitude);
         void EvictOldFrames();
+        void SettlePartial(Snapshot *snapshot);
+        void SettlePrimary(Candidate *candidate, const Snapshot &snapshot);
+        double HoldMs(const std::string &word) const;
 
         std::map<int64_t, FrameEnergy> energy_frames_;
+        std::vector<WordSupport> support_;
         bool configured_ = false;
         bool pending_ = false;
         bool ever_published_ = false;

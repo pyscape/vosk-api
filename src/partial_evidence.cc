@@ -70,6 +70,7 @@ void PartialEvidence::BeginEpoch(uint64_t epoch)
     published_lattice_end_ = 0;
     // [[rr:FVP-7]]
     energy_frames_.clear();
+    support_.clear();
     if (!ever_published_) {
         published_ = Snapshot();
         published_.epoch = epoch_;
@@ -241,8 +242,158 @@ void PartialEvidence::Publish(const Observation &observation, Kind kind)
             }
         }
     }
+    // [[rr:FVP-7]]
+    if (kind == Kind::kPartial) {
+        SettlePartial(&published_);
+    }
     lattice_published_ = observation.lattice_end_known;
     published_lattice_end_ = observation.lattice_end_sample;
+}
+
+// [[rr:FVP-7]]
+double PartialEvidence::HoldMs(const std::string &word) const
+{
+    std::map<std::string, double>::const_iterator it = active_.hold_ms.find(word);
+    if (it != active_.hold_ms.end()) {
+        return it->second;
+    }
+    return active_.default_hold_ms;
+}
+
+// [[rr:FVP-7]]
+static bool Eligible(const Word &word, Reason *reason)
+{
+    if (!(word.start_sample_known && word.end_sample_known && word.bin_known)) {
+        *reason = Reason::kUnknownAlignment;
+        return false;
+    }
+    if (word.energy == Energy::kUnknown) {
+        *reason = Reason::kUnknownAudio;
+        return false;
+    }
+    if (!(word.word_p_known && word.null_p_known && word.word_p > word.null_p)) {
+        *reason = Reason::kNullWins;
+        return false;
+    }
+    if (word.energy == Energy::kQuiet) {
+        *reason = Reason::kQuiet;
+        return false;
+    }
+    return true;
+}
+
+// [[rr:FVP-7]]
+static void MarkUnsettled(std::vector<Word> *words)
+{
+    for (std::size_t i = 0; i < words->size(); i++) {
+        Word &word = (*words)[i];
+        Reason reason;
+        bool eligible = Eligible(word, &reason);
+        word.ready = false;
+        word.reason = eligible ? Reason::kUnstable : reason;
+    }
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::SettlePrimary(Candidate *candidate, const Snapshot &snapshot)
+{
+    std::vector<Word> &words = candidate->words;
+    if (words.empty()) {
+        support_.clear();
+        return;
+    }
+    bool hole = false;
+    for (std::size_t i = 0; i < words.size(); i++) {
+        Word &word = words[i];
+        Reason reason;
+        bool eligible = Eligible(word, &reason);
+        if (hole || !eligible) {
+            word.ready = false;
+            word.reason = eligible ? Reason::kUnstable : reason;
+            if (i < support_.size()) {
+                support_[i] = WordSupport();
+            }
+            hole = true;
+            continue;
+        }
+        std::vector<std::string> prefix;
+        for (std::size_t p = 0; p < i; p++) {
+            prefix.push_back(words[p].word);
+        }
+        if (support_.size() <= i) {
+            support_.resize(i + 1);
+        }
+        WordSupport &entry = support_[i];
+        bool overlaps = entry.start_sample < word.end_sample &&
+                        word.start_sample < entry.end_sample;
+        bool continues = entry.active && entry.prefix == prefix && overlaps;
+        if (continues) {
+            if (snapshot.lattice_end_known &&
+                snapshot.lattice_end_sample != entry.frontier) {
+                double samples = static_cast<double>(snapshot.lattice_end_sample -
+                                                     entry.frontier);
+                entry.stable_ms += samples / active_.sample_rate_hz * 1000.0;
+                entry.frontier = snapshot.lattice_end_sample;
+            }
+            entry.start_sample = word.start_sample;
+            entry.end_sample = word.end_sample;
+        } else {
+            entry.active = true;
+            entry.prefix = prefix;
+            entry.start_sample = word.start_sample;
+            entry.end_sample = word.end_sample;
+            entry.stable_ms = 0.0;
+            entry.frontier = snapshot.lattice_end_known
+                                 ? snapshot.lattice_end_sample
+                                 : 0;
+            support_.resize(i + 1);
+        }
+        word.stable_ms_known = true;
+        word.stable_ms = entry.stable_ms;
+        if (entry.stable_ms >= HoldMs(word.word)) {
+            word.ready = true;
+            word.reason = Reason::kReady;
+        } else {
+            word.ready = false;
+            word.reason = Reason::kUnstable;
+        }
+    }
+    if (support_.size() > words.size()) {
+        support_.resize(words.size());
+    }
+}
+
+// [[rr:FVP-7]]
+void PartialEvidence::SettlePartial(Snapshot *snapshot)
+{
+    int primary = -1;
+    for (std::size_t c = 0; c < snapshot->candidates.size(); c++) {
+        if (snapshot->candidates[c].primary) {
+            primary = static_cast<int>(c);
+            break;
+        }
+    }
+    if (primary < 0 && !snapshot->candidates.empty()) {
+        primary = 0;
+    }
+    for (std::size_t c = 0; c < snapshot->candidates.size(); c++) {
+        if (static_cast<int>(c) != primary) {
+            MarkUnsettled(&snapshot->candidates[c].words);
+        }
+    }
+    if (primary >= 0) {
+        SettlePrimary(&snapshot->candidates[primary], *snapshot);
+    } else {
+        support_.clear();
+    }
+    for (std::size_t c = 0; c < snapshot->candidates.size(); c++) {
+        Candidate &candidate = snapshot->candidates[c];
+        std::size_t prefix = 0;
+        while (prefix < candidate.words.size() && candidate.words[prefix].ready) {
+            prefix++;
+        }
+        candidate.ready_prefix = prefix;
+    }
 }
 
 }  // namespace partial_evidence
