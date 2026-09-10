@@ -844,13 +844,14 @@ const char* Recognizer::PartialResult()
     }
 
     // [[rr:FVP-4]]
-    evidence_.ObservePartial(EvidenceObservation());
+    partial_evidence::Observation evidence_obs = EvidenceObservation();
 
     json::JSON res;
 
     if (partial_words_) {
 
         if (decoder_->NumFramesInLattice() == 0) {
+            evidence_.ObservePartial(evidence_obs);
             res["partial"] = "";
             return StoreReturn(res.dump());
         }
@@ -890,6 +891,20 @@ const char* Recognizer::PartialResult()
             text << model_->word_syms_->Find(words[i]);
         }
         res["partial"] = text.str();
+
+        // [[rr:FVP-6]]
+        if (evidence_.configured()) {
+            partial_evidence::ExtractParams evidence_params;
+            evidence_params.distinct_paths =
+                partial_alternatives_ > 1 ? partial_alternatives_ : 4;
+            evidence_params.clock.base_sample = samples_round_start_;
+            evidence_params.clock.frame_offset = frame_offset_;
+            evidence_params.clock.samples_per_frame = EvidenceSamplesPerFrame();
+            partial_evidence::ExtractCandidates(aligned_lat, &mbr,
+                                                model_->word_syms_,
+                                                evidence_params, &evidence_obs);
+        }
+        evidence_.ObservePartial(evidence_obs);
 
         // The competition MBR already computed and would otherwise discard.
         // GetOneBest() keeps the winner of each bin; the bins themselves hold
@@ -955,6 +970,8 @@ const char* Recognizer::PartialResult()
         }
 
     } else {
+
+        evidence_.ObservePartial(evidence_obs);
 
         if (decoder_->NumFramesDecoded() == 0) {
             res["partial"] = "";

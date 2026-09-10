@@ -79,6 +79,10 @@ struct Candidate {
     int id = 0;
     std::vector<Word> words;
     std::size_t ready_prefix = 0;
+    bool primary = false;
+    bool empty = false;
+    bool likelihood_known = false;
+    double likelihood = 0.0;
 };
 
 struct Observation {
@@ -89,6 +93,7 @@ struct Observation {
     bool lattice_end_known = false;
     int64_t lattice_end_sample = 0;
     std::vector<Candidate> candidates;
+    bool truncated = false;
 };
 
 // [[rr:FVP-5]]
@@ -105,6 +110,7 @@ struct Snapshot {
     bool lattice_end_known = false;
     int64_t lattice_end_sample = 0;
     std::vector<Candidate> candidates;
+    bool truncated = false;
 };
 
 bool Validate(const Config &config);
@@ -139,5 +145,42 @@ class PartialEvidence {
 };
 
 }  // namespace partial_evidence
+
+#if defined(__has_include) && __has_include("lat/sausages.h")
+
+#include "lat/sausages.h"
+#include "lat/kaldi-lattice.h"
+
+namespace partial_evidence {
+
+// [[rr:FVP-5]]
+struct SampleClock {
+    int64_t base_sample = 0;
+    int64_t frame_offset = 0;
+    double samples_per_frame = 0.0;
+
+    int64_t ToSample(double frame) const {
+        return base_sample +
+               static_cast<int64_t>((static_cast<double>(frame_offset) + frame) *
+                                    samples_per_frame);
+    }
+};
+
+// [[rr:FVP-6]]
+struct ExtractParams {
+    int distinct_paths = 4;
+    SampleClock clock;
+};
+
+// [[rr:FVP-6]]
+void ExtractCandidates(const kaldi::CompactLattice &aligned_lat,
+                       kaldi::MinimumBayesRisk *mbr,
+                       const fst::SymbolTable *word_syms,
+                       const ExtractParams &params,
+                       Observation *observation);
+
+}  // namespace partial_evidence
+
+#endif  // Kaldi available
 
 #endif /* VOSK_PARTIAL_EVIDENCE_H */
