@@ -8,7 +8,7 @@ cd /opt
 cp -r /io /opt/vosk-api
 cd vosk-api/src
 make clean || true
-EXTRA_LDFLAGS=-Wl,--out-implib,libvosk.lib CXX=x86_64-w64-mingw32-g++-posix EXT=dll KALDI_ROOT=/opt/kaldi/kaldi OPENFST_ROOT=/opt/kaldi/local OPENBLAS_ROOT=/opt/kaldi/local make -j $(nproc)
+EXTRA_LDFLAGS=-Wl,--out-implib,libvosk.lib CXX=x86_64-w64-mingw32-g++-posix EXT=dll KALDI_ROOT=/opt/kaldi/kaldi OPENFST_ROOT=/opt/kaldi/local OPENBLAS_ROOT=/opt/kaldi/local make -j "${VOSK_BUILD_JOBS:-3}"
 
 # Collect dependencies
 cp /usr/lib/gcc/x86_64-w64-mingw32/*-posix/libstdc++-6.dll /opt/vosk-api/src
